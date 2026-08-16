@@ -34,10 +34,9 @@ public class DataSeed implements CommandLineRunner {
     public void run(String... args) {
 
         if (bookRepository.count() > 0 || userRepository.count() > 0) {
-            return; // avoid re-seeding on every restart if data already exists
+            return;
         }
 
-        // create a few books for all the interviewers and me :)
         Book cleanCode = new Book("Clean Code", "Robert Martin","978-0135398579",
                 LocalDate.of(2008, 8, 1));
         Book ingram = new Book("Golf Is Not a Game of Perfect", "Dr. Bob Rotella","978-0743492478",

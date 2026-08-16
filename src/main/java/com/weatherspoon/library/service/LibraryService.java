@@ -40,7 +40,7 @@ public class LibraryService {
     private final UserRepository userRepo;
 
     /**
-     * Returning book and updating users' records to prevent late return.
+     * Returns a checked-out book: marks it available again and closes out its active checkout.
      * @param request api request for returning book
      * @return ReturnResponse for book return
      * @throws BookNotFoundException if the book doesn't exist
@@ -53,15 +53,13 @@ public class LibraryService {
         Long bookId = request.bookId();
         Long userId = request.userId();
 
-        // first verify the user and book are valid
         Book book = bookRepo.findById(bookId).orElseThrow(() -> new BookNotFoundException(bookId, Instant.now()));
         User user = userRepo.findById(userId).orElseThrow(() -> new UserNotFoundException(userId, Instant.now()));
 
-        // Get checkout info
         Checkout bookRental = checkoutRepo.getActiveCheckoutByBook(bookId)
                 .orElseThrow(() -> new BookNotCheckedOutException(bookId, Instant.now()));
 
-        // I believe we still want to take the book but should log out someone else returned it
+        // Still accept the return even if it's not the original borrower, but flag it.
         if (!bookRental.getUser().getUserId().equals(userId)) {
             logger.warn("Book {} with id {} was returned by another user", bookRental.getBook().getTitle(),
                     bookRental.getBook().getBookId());
@@ -112,7 +110,7 @@ public class LibraryService {
     }
 
     /**
-     * Simple method to return a list of books a user has checked out, when they got them and when they're due.
+     * Returns the books a user currently has checked out, with checkout and due dates.
      * @param userId user identifier
      * @return list of books with due date and original date of checkout
      * @throws UserNotFoundException if the user doesn't exist

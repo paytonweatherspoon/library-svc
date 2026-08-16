@@ -14,8 +14,4 @@ public record LibraryRequest (
     @NotNull @Positive  Long userId,
     @NotNull @Positive  Long bookId
 ) {
-    public LibraryRequest(Long userId, Long bookId) {
-        this.userId = userId;
-        this.bookId = bookId;
-    }
 }

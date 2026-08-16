@@ -41,23 +41,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link LibraryService}.
- *
- * NOTE ON ASSUMPTIONS:
- * - Book is built via its real public constructor (title, author, isbn, publishedDate).
- * - User.java was not provided, so it's assumed to follow the same pattern as Book
- *   (generated @Id, no public ID setter, protected no-args constructor). Since we don't
- *   have its real constructor signature, {@link #newUser(String, String)} instantiates it
- *   via its protected no-args constructor and sets firstName/lastName reflectively with
- *   ReflectionTestUtils. Swap this for a real constructor call once User.java is available.
- * - None of these tests need entity IDs to be populated: repositories are mocked to return
- *   specific object *references*, and both Book.equals()/Checkout.equals() short-circuit to
- *   true on reference equality (this == o) before ever touching the (possibly-null) ID field,
- *   so identity-based assertions work correctly without a generated ID.
- * - DTOs (LibraryRequest, CheckoutResponse, ReturnResponse, UserActiveCheckout, BookDetails)
- *   and the exception classes were inferred from how LibraryService.java uses them (e.g.
- *   request.bookId()/request.userId() implies LibraryRequest is a record). Adjust field/accessor
- *   names below if your real DTOs differ.
+ * Unit tests for {@link LibraryService}. Repositories are mocked, so these exercise
+ * only the service's business logic (availability checks, checkout/return bookkeeping,
+ * exception mapping) independent of Spring or the database.
  */
 @ExtendWith(MockitoExtension.class)
 class LibraryServiceTest {
@@ -83,7 +69,7 @@ class LibraryServiceTest {
 
 
     /**
-     * Create sample book and users with ids set manually with private package constructor to avoid DB mocking.
+     * Creates a test book and two test users with fixed IDs, bypassing the database.
      */
     @BeforeEach
     void setUp() {
@@ -122,7 +108,7 @@ class LibraryServiceTest {
     @DisplayName("Checkout fails with exception when book already checked out")
     void checkoutBookFailsIfAlreadyCheckedOut() {
         book.setIsAvailable(false);
-        LibraryRequest request = new LibraryRequest(BOOK_ID, USER_ID);
+        LibraryRequest request = new LibraryRequest(USER_ID, BOOK_ID);
 
         when(bookRepo.findById(BOOK_ID)).thenReturn(Optional.of(book));
         when(userRepo.findById(USER_ID)).thenReturn(Optional.of(user));
@@ -135,7 +121,7 @@ class LibraryServiceTest {
     @Test
     @DisplayName("Checkout throws UserNotFoundException for invalid user")
     void checkoutBookThrowsUserNotFoundException() {
-        LibraryRequest request = new LibraryRequest(BOOK_ID, USER_ID);
+        LibraryRequest request = new LibraryRequest(USER_ID, BOOK_ID);
 
         when(bookRepo.findById(BOOK_ID)).thenReturn(Optional.of(book));
         when(userRepo.findById(USER_ID)).thenReturn(Optional.empty());
@@ -148,7 +134,7 @@ class LibraryServiceTest {
     @Test
     @DisplayName("Checkout throws BookNotFoundException for invalid book")
     void checkoutBookThrowsBookNotFoundException() {
-        LibraryRequest request = new LibraryRequest(BOOK_ID, USER_ID);
+        LibraryRequest request = new LibraryRequest(USER_ID, BOOK_ID);
 
         when(bookRepo.findById(BOOK_ID)).thenReturn(Optional.empty());
 
@@ -165,7 +151,7 @@ class LibraryServiceTest {
     @Test
     @DisplayName("Return fails with exception when no active checkout exists for this book")
     void returnBookFailsIfNotCurrentlyCheckedOut() {
-        LibraryRequest request = new LibraryRequest(BOOK_ID, USER_ID);
+        LibraryRequest request = new LibraryRequest(USER_ID, BOOK_ID);
 
         when(bookRepo.findById(BOOK_ID)).thenReturn(Optional.of(book));
         when(userRepo.findById(USER_ID)).thenReturn(Optional.of(user));
@@ -181,7 +167,7 @@ class LibraryServiceTest {
     void returnBookSuccess() {
         book.setIsAvailable(false);
         Checkout activeCheckout = new Checkout(user, book);
-        LibraryRequest request = new LibraryRequest(BOOK_ID, USER_ID);
+        LibraryRequest request = new LibraryRequest(USER_ID, BOOK_ID);
 
         when(bookRepo.findById(BOOK_ID)).thenReturn(Optional.of(book));
         when(userRepo.findById(USER_ID)).thenReturn(Optional.of(user));
@@ -200,7 +186,7 @@ class LibraryServiceTest {
     }
 
     @Test
-    @DisplayName("Return proceeds (with debug logging) even when the returning user differs from the original borrower")
+    @DisplayName("Return succeeds (with a warning logged) even when the returning user differs from the original borrower")
     void returnBehaviorWhenOwnershipMismatch() {
         book.setIsAvailable(false);
         // Checkout was originally made by `user`, but `otherUser` is the one returning it.
@@ -211,15 +197,11 @@ class LibraryServiceTest {
         when(userRepo.findById(OTHER_USER_ID)).thenReturn(Optional.of(otherUser));
         when(checkoutRepo.getActiveCheckoutByBook(BOOK_ID)).thenReturn(Optional.of(activeCheckout));
 
-        // Should not throw, despite the ownership mismatch -- current design allows
-        // cross-user returns (e.g. lost book handed in by someone else, staff-assisted returns).
         ReturnResponse response = libraryService.returnBook(request);
 
         assertNotNull(response);
         assertTrue(book.getIsAvailable());
-        // Note: response.returningUser() reflects the *requesting* user (otherUser),
-        // since that's who the service looked up and used to build the response,
-        // even though the checkout record itself belongs to `user`.
+        // returningUser reflects the requesting user (otherUser), not the original borrower.
         assertEquals("New User", response.returningUser());
         verify(checkoutRepo, times(1)).save(activeCheckout);
     }
