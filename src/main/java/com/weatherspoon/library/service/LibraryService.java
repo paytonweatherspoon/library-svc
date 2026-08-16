@@ -74,8 +74,8 @@ public class LibraryService {
     }
 
     /**
-     * Checkout a book for a user.
-     * Fails when a user and/or book do not exist. Marks a book as unavailable and creates a checkout.
+     * Checks out a book for a user.
+     * Fails when the user and/or book do not exist. Marks the book unavailable and creates a checkout.
      * @param checkoutRequest api request to checkout book
      * @return checkout response
      * @throws BookNotFoundException if the book doesn't exist
