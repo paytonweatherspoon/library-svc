@@ -55,6 +55,15 @@ public class Checkout {
     }
 
     /**
+     * Package-private constructor for tests that need to fix the generated ID without
+     * round-tripping through the database.
+     */
+    Checkout(Long checkoutId, User user, Book book) {
+        this(user, book);
+        this.checkoutId = checkoutId;
+    }
+
+    /**
      * @return true if the book has not yet been returned
      */
     public boolean isActive() {

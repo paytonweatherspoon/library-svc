@@ -4,8 +4,8 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
 /**
- * Request body shared by the checkout and return endpoints: identifies which user is
- * acting on which book.
+ * Request body for {@code POST /api/v1/checkouts}: identifies which user is checking
+ * out which book.
  *
  * @param userId the acting user's ID; must be present and positive
  * @param bookId the book's ID; must be present and positive

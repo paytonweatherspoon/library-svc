@@ -11,6 +11,6 @@ import java.time.Instant;
 public class BookUnavailableException extends LibraryException {
 
     public BookUnavailableException(Long bookId, Instant timestamp) {
-        super("Book %d is currently checkout out to another user".formatted(bookId), HttpStatus.CONFLICT, timestamp);
+        super("Book %d is currently checked out to another user".formatted(bookId), HttpStatus.CONFLICT, timestamp);
     }
 }

@@ -1,15 +1,18 @@
 package com.weatherspoon.library.service;
 
 import com.weatherspoon.library.dto.request.LibraryRequest;
+import com.weatherspoon.library.dto.request.ReturnCheckoutRequest;
+import com.weatherspoon.library.dto.CheckoutDetails;
 import com.weatherspoon.library.dto.response.CheckoutResponse;
 import com.weatherspoon.library.dto.response.ReturnResponse;
 import com.weatherspoon.library.dto.response.UserActiveCheckout;
 import com.weatherspoon.library.entity.Book;
 import com.weatherspoon.library.entity.Checkout;
 import com.weatherspoon.library.entity.User;
-import com.weatherspoon.library.exception.BookNotCheckedOutException;
 import com.weatherspoon.library.exception.BookNotFoundException;
 import com.weatherspoon.library.exception.BookUnavailableException;
+import com.weatherspoon.library.exception.CheckoutAlreadyReturnedException;
+import com.weatherspoon.library.exception.CheckoutNotFoundException;
 import com.weatherspoon.library.exception.UserNotFoundException;
 import com.weatherspoon.library.repository.BookRepository;
 import com.weatherspoon.library.repository.CheckoutRepository;
@@ -22,15 +25,18 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
 import static com.weatherspoon.library.entity.TestDataFactory.createTestBook;
+import static com.weatherspoon.library.entity.TestDataFactory.createTestCheckout;
 import static com.weatherspoon.library.entity.TestDataFactory.createTestUser;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -66,6 +72,7 @@ class LibraryServiceTest {
     private static final Long BOOK_ID = 1L;
     private static final Long USER_ID = 1L;
     private static final Long OTHER_USER_ID = 2L;
+    private static final Long CHECKOUT_ID = 1L;
 
 
     /**
@@ -102,6 +109,8 @@ class LibraryServiceTest {
         verify(checkoutRepo, times(1)).save(checkoutCaptor.capture());
         assertEquals(book, checkoutCaptor.getValue().getBook());
         assertEquals(user, checkoutCaptor.getValue().getUser());
+        assertEquals(checkoutCaptor.getValue().getCheckoutId(), response.checkoutId(),
+                "Response checkoutId should come from the saved checkout entity");
     }
 
     @Test
@@ -149,33 +158,47 @@ class LibraryServiceTest {
     // ---------------------------------------------------------------
 
     @Test
-    @DisplayName("Return fails with exception when no active checkout exists for this book")
-    void returnBookFailsIfNotCurrentlyCheckedOut() {
-        LibraryRequest request = new LibraryRequest(USER_ID, BOOK_ID);
+    @DisplayName("Return throws CheckoutNotFoundException when the checkout ID doesn't exist")
+    void returnBookThrowsCheckoutNotFoundException() {
+        ReturnCheckoutRequest request = new ReturnCheckoutRequest(USER_ID);
 
-        when(bookRepo.findById(BOOK_ID)).thenReturn(Optional.of(book));
-        when(userRepo.findById(USER_ID)).thenReturn(Optional.of(user));
-        when(checkoutRepo.getActiveCheckoutByBook(BOOK_ID)).thenReturn(Optional.empty());
+        when(checkoutRepo.findById(CHECKOUT_ID)).thenReturn(Optional.empty());
 
-        assertThrows(BookNotCheckedOutException.class, () -> libraryService.returnBook(request));
+        assertThrows(CheckoutNotFoundException.class, () -> libraryService.returnBook(CHECKOUT_ID, request));
 
+        verify(userRepo, never()).findById(anyLong());
         verify(checkoutRepo, never()).save(any(Checkout.class));
     }
 
     @Test
-    @DisplayName("Return succeeds when active checkout exists for same user")
+    @DisplayName("Return throws CheckoutAlreadyReturnedException when the checkout is already closed")
+    void returnBookThrowsCheckoutAlreadyReturnedException() {
+        Checkout closedCheckout = createTestCheckout(CHECKOUT_ID, user, book);
+        closedCheckout.setReturnTime(Instant.now());
+        ReturnCheckoutRequest request = new ReturnCheckoutRequest(USER_ID);
+
+        when(checkoutRepo.findById(CHECKOUT_ID)).thenReturn(Optional.of(closedCheckout));
+
+        assertThrows(CheckoutAlreadyReturnedException.class, () -> libraryService.returnBook(CHECKOUT_ID, request));
+
+        verify(userRepo, never()).findById(anyLong());
+        verify(checkoutRepo, never()).save(any(Checkout.class));
+    }
+
+    @Test
+    @DisplayName("Return succeeds when the checkout is active")
     void returnBookSuccess() {
         book.setIsAvailable(false);
-        Checkout activeCheckout = new Checkout(user, book);
-        LibraryRequest request = new LibraryRequest(USER_ID, BOOK_ID);
+        Checkout activeCheckout = createTestCheckout(CHECKOUT_ID, user, book);
+        ReturnCheckoutRequest request = new ReturnCheckoutRequest(USER_ID);
 
-        when(bookRepo.findById(BOOK_ID)).thenReturn(Optional.of(book));
+        when(checkoutRepo.findById(CHECKOUT_ID)).thenReturn(Optional.of(activeCheckout));
         when(userRepo.findById(USER_ID)).thenReturn(Optional.of(user));
-        when(checkoutRepo.getActiveCheckoutByBook(BOOK_ID)).thenReturn(Optional.of(activeCheckout));
 
-        ReturnResponse response = libraryService.returnBook(request);
+        ReturnResponse response = libraryService.returnBook(CHECKOUT_ID, request);
 
         assertNotNull(response);
+        assertEquals(CHECKOUT_ID, response.checkoutId());
         assertEquals("Effective Java", response.bookReturned());
         assertEquals("Test User", response.returningUser());
         assertNotNull(response.returnTime());
@@ -190,20 +213,76 @@ class LibraryServiceTest {
     void returnBehaviorWhenOwnershipMismatch() {
         book.setIsAvailable(false);
         // Checkout was originally made by `user`, but `otherUser` is the one returning it.
-        Checkout activeCheckout = new Checkout(user, book);
-        LibraryRequest request = new LibraryRequest(OTHER_USER_ID, BOOK_ID);
+        Checkout activeCheckout = createTestCheckout(CHECKOUT_ID, user, book);
+        ReturnCheckoutRequest request = new ReturnCheckoutRequest(OTHER_USER_ID);
 
-        when(bookRepo.findById(BOOK_ID)).thenReturn(Optional.of(book));
+        when(checkoutRepo.findById(CHECKOUT_ID)).thenReturn(Optional.of(activeCheckout));
         when(userRepo.findById(OTHER_USER_ID)).thenReturn(Optional.of(otherUser));
-        when(checkoutRepo.getActiveCheckoutByBook(BOOK_ID)).thenReturn(Optional.of(activeCheckout));
 
-        ReturnResponse response = libraryService.returnBook(request);
+        ReturnResponse response = libraryService.returnBook(CHECKOUT_ID, request);
 
         assertNotNull(response);
         assertTrue(book.getIsAvailable());
         // returningUser reflects the requesting user (otherUser), not the original borrower.
         assertEquals("New User", response.returningUser());
         verify(checkoutRepo, times(1)).save(activeCheckout);
+    }
+
+    @Test
+    @DisplayName("Return throws UserNotFoundException when the returning user doesn't exist")
+    void returnBookThrowsUserNotFoundException() {
+        Checkout activeCheckout = createTestCheckout(CHECKOUT_ID, user, book);
+        ReturnCheckoutRequest request = new ReturnCheckoutRequest(OTHER_USER_ID);
+
+        when(checkoutRepo.findById(CHECKOUT_ID)).thenReturn(Optional.of(activeCheckout));
+        when(userRepo.findById(OTHER_USER_ID)).thenReturn(Optional.empty());
+
+        assertThrows(UserNotFoundException.class, () -> libraryService.returnBook(CHECKOUT_ID, request));
+
+        verify(checkoutRepo, never()).save(any(Checkout.class));
+    }
+
+    // ---------------------------------------------------------------
+    // getCheckout()
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("Get checkout returns full details for an active checkout")
+    void getCheckoutSuccessActive() {
+        Checkout activeCheckout = createTestCheckout(CHECKOUT_ID, user, book);
+
+        when(checkoutRepo.findById(CHECKOUT_ID)).thenReturn(Optional.of(activeCheckout));
+
+        CheckoutDetails details = libraryService.getCheckout(CHECKOUT_ID);
+
+        assertNotNull(details);
+        assertEquals(CHECKOUT_ID, details.checkoutId());
+        assertEquals("Effective Java", details.bookName());
+        assertEquals("Test User", details.userName());
+        assertNotNull(details.checkoutTime());
+        assertNotNull(details.dueTime());
+        assertNull(details.returnTime(), "Active checkout should have no return time");
+    }
+
+    @Test
+    @DisplayName("Get checkout reflects returnTime for an already-returned checkout")
+    void getCheckoutSuccessReturned() {
+        Checkout closedCheckout = createTestCheckout(CHECKOUT_ID, user, book);
+        closedCheckout.setReturnTime(Instant.now());
+
+        when(checkoutRepo.findById(CHECKOUT_ID)).thenReturn(Optional.of(closedCheckout));
+
+        CheckoutDetails details = libraryService.getCheckout(CHECKOUT_ID);
+
+        assertNotNull(details.returnTime());
+    }
+
+    @Test
+    @DisplayName("Get checkout throws CheckoutNotFoundException when the ID doesn't exist")
+    void getCheckoutThrowsCheckoutNotFoundException() {
+        when(checkoutRepo.findById(CHECKOUT_ID)).thenReturn(Optional.empty());
+
+        assertThrows(CheckoutNotFoundException.class, () -> libraryService.getCheckout(CHECKOUT_ID));
     }
 
     // ---------------------------------------------------------------
@@ -216,8 +295,8 @@ class LibraryServiceTest {
         Book secondBook = new Book("Clean Code", "Robert C. Martin", "978-0132350884",
                 LocalDate.of(2008, 8, 1), false);
 
-        Checkout firstCheckout = new Checkout(user, book);
-        Checkout secondCheckout = new Checkout(user, secondBook);
+        Checkout firstCheckout = createTestCheckout(CHECKOUT_ID, user, book);
+        Checkout secondCheckout = createTestCheckout(2L, user, secondBook);
 
         when(userRepo.findById(USER_ID)).thenReturn(Optional.of(user));
         when(checkoutRepo.getActiveCheckoutsByUser(USER_ID))
@@ -230,6 +309,8 @@ class LibraryServiceTest {
         assertEquals(2, result.books().size());
         assertTrue(result.books().stream().anyMatch(b -> b.title().equals("Effective Java")));
         assertTrue(result.books().stream().anyMatch(b -> b.title().equals("Clean Code")));
+        assertTrue(result.books().stream().anyMatch(b -> CHECKOUT_ID.equals(b.checkoutId())),
+                "Each book should expose the checkoutId needed to call the return endpoint");
     }
 
     @Test

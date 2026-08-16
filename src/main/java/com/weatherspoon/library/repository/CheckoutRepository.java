@@ -6,11 +6,11 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
- * CRUD access to {@link Checkout}, plus lookups for the currently-active (not yet
- * returned) checkouts, which drive the checkout/return/list-active-books flows.
+ * CRUD access to {@link Checkout}, plus a lookup for the currently-active (not yet
+ * returned) checkouts for a user, which drives the list-active-checkouts flow. Returning
+ * a book is looked up directly by checkout ID via the inherited {@code findById}.
  */
 @Repository
 public interface CheckoutRepository extends JpaRepository<Checkout, Long> {
@@ -20,10 +20,4 @@ public interface CheckoutRepository extends JpaRepository<Checkout, Long> {
      */
     @Query("SELECT c FROM Checkout c WHERE c.user.userId = :userId AND c.returnTime IS NULL")
     List<Checkout> getActiveCheckoutsByUser(Long userId);
-
-    /**
-     * @return the given book's active checkout, if it's currently checked out to anyone
-     */
-    @Query("SELECT c FROM Checkout c WHERE c.book.bookId = :bookId AND c.returnTime IS NULL")
-    Optional<Checkout> getActiveCheckoutByBook(Long bookId);
 }

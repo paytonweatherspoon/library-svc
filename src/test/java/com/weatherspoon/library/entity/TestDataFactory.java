@@ -10,4 +10,8 @@ public class TestDataFactory {
         return new User(id, firstName, lasName, email);
     }
 
+    public static Checkout createTestCheckout(Long id, User user, Book book) {
+        return new Checkout(id, user, book);
+    }
+
 }
